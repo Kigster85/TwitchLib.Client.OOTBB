@@ -25,7 +25,7 @@ namespace TwitchLib.Client
     /// Implements the <see cref="TwitchLib.Client.Interfaces.ITwitchClient" />
     /// </summary>
     /// <seealso cref="TwitchLib.Client.Interfaces.ITwitchClient" />
-    public class TwitchClient : ITwitchClient
+    public class TwitchClient : TwitchClientBase, ITwitchClient
     {
         #region Private Variables
         /// <summary>
@@ -472,7 +472,7 @@ namespace TwitchLib.Client
         /// <param name="autoReListenOnExceptions">By default, TwitchClient will silence exceptions and auto-relisten for overall stability. For debugging, you may wish to have the exception bubble up, set this to false.</param>
         public void Initialize(ConnectionCredentials credentials, string channel = null, char chatCommandIdentifier = '!', char whisperCommandIdentifier = '!', bool autoReListenOnExceptions = true)
         {
-            if (channel[0] == '#') channel = channel.Substring(1);
+            if (channel != null && channel[0] == '#') channel = channel.Substring(1);
             initializeHelper(credentials, new List<string>() { channel }, chatCommandIdentifier, whisperCommandIdentifier, autoReListenOnExceptions);
         }
 
@@ -582,7 +582,7 @@ namespace TwitchLib.Client
             if (!IsInitialized) HandleNotInitialized();
 
             Log($"Writing: {message}");
-            _client.Send(message);
+            _client.SendAsync(message);
             OnSendReceiveData?.Invoke(this, new OnSendReceiveDataArgs { Direction = Enums.SendReceiveDirection.Sent, Data = message });
         }
 
@@ -612,7 +612,7 @@ namespace TwitchLib.Client
             _lastMessageSent = message;
 
 
-            _client.Send(twitchMessage.ToString());
+            _client.SendAsync(twitchMessage.ToString());
         }
 
         /// <summary>
@@ -702,7 +702,7 @@ namespace TwitchLib.Client
 			// Clear instance data
             _joinedChannelManager.Clear();
 
-            if(_client.Open())
+            if(_client.OpenAsync())
             {
                 Log("Should be connected!");
                 return true;
@@ -718,7 +718,7 @@ namespace TwitchLib.Client
             Log("Disconnect Twitch Chat Client...");
 
             if (!IsInitialized) HandleNotInitialized();
-            _client.Close();
+            _client.CloseAsync();
 
             // Clear instance data
             _joinedChannelManager.Clear();
@@ -732,7 +732,7 @@ namespace TwitchLib.Client
         {
             if (!IsInitialized) HandleNotInitialized();
             Log($"Reconnecting to Twitch");
-            _client.Reconnect();
+            _client.ReconnectAsync();
         }
         #endregion
 
@@ -845,7 +845,7 @@ namespace TwitchLib.Client
             Log($"Leaving channel: {channel}");
             JoinedChannel joinedChannel = _joinedChannelManager.GetJoinedChannel(channel);
             if (joinedChannel != null)
-                _client.Send(Rfc2812.Part($"#{channel}"));
+                _client.SendAsync(Rfc2812.Part($"#{channel}"));
         }
 
         /// <summary>
@@ -883,22 +883,12 @@ namespace TwitchLib.Client
             OnWhisperThrottled?.Invoke(sender, e);
         }
 
-        /// <summary>
-        /// Handles the OnMessageThrottled event of the _client control.
-        /// </summary>
-        /// <param name="sender">The source of the event.</param>
-        /// <param name="e">The <see cref="OnMessageThrottledEventArgs" /> instance containing the event data.</param>
-        private void _client_OnMessageThrottled(object sender, OnMessageThrottledEventArgs e)
-        {
-            OnMessageThrottled?.Invoke(sender, e);
-        }
-
-        /// <summary>
-        /// Handles the OnFatality event of the _client control.
-        /// </summary>
-        /// <param name="sender">The source of the event.</param>
-        /// <param name="e">The <see cref="OnFatalErrorEventArgs" /> instance containing the event data.</param>
-        private void _client_OnFatality(object sender, OnFatalErrorEventArgs e)
+    /// <summary>
+    /// Handles the OnFatality event of the _client control.
+    /// </summary>
+    /// <param name="sender">The source of the event.</param>
+    /// <param name="e">The <see cref="OnFatalErrorEventArgs" /> instance containing the event data.</param>
+    private void _client_OnFatality(object sender, OnFatalErrorEventArgs e)
         {
             OnConnectionError?.Invoke(this, new OnConnectionErrorArgs { BotUsername = TwitchUsername, Error = new ErrorEvent { Message = e.Reason } });
         }
@@ -954,16 +944,16 @@ namespace TwitchLib.Client
         /// <param name="e">The e.</param>
         private void _client_OnConnected(object sender, object e)
         {
-            _client.Send(Rfc2812.Pass(ConnectionCredentials.TwitchOAuth));
-            _client.Send(Rfc2812.Nick(ConnectionCredentials.TwitchUsername));
-            _client.Send(Rfc2812.User(ConnectionCredentials.TwitchUsername, 0, ConnectionCredentials.TwitchUsername));
+            _client.SendAsync(Rfc2812.Pass(ConnectionCredentials.TwitchOAuth));
+            _client.SendAsync(Rfc2812.Nick(ConnectionCredentials.TwitchUsername));
+            _client.SendAsync(Rfc2812.User(ConnectionCredentials.TwitchUsername, 0, ConnectionCredentials.TwitchUsername));
 
             if (ConnectionCredentials.Capabilities.Membership)
-                _client.Send("CAP REQ twitch.tv/membership");
+                _client.SendAsync("CAP REQ twitch.tv/membership");
             if (ConnectionCredentials.Capabilities.Commands)
-                _client.Send("CAP REQ twitch.tv/commands");
+                _client.SendAsync("CAP REQ twitch.tv/commands");
             if (ConnectionCredentials.Capabilities.Tags)
-                _client.Send("CAP REQ twitch.tv/tags");
+                _client.SendAsync("CAP REQ twitch.tv/tags");
 
             if(_joinChannelQueue != null && _joinChannelQueue.Count > 0)
             {
@@ -986,7 +976,7 @@ namespace TwitchLib.Client
                 JoinedChannel channelToJoin = _joinChannelQueue.Dequeue();
                 Log($"Joining channel: {channelToJoin.Channel}");
                 // important we set channel to lower case when sending join message
-                _client.Send(Rfc2812.Join($"#{channelToJoin.Channel.ToLower()}"));
+                _client.SendAsync(Rfc2812.Join($"#{channelToJoin.Channel.ToLower()}"));
                 _joinedChannelManager.AddJoinedChannel(new JoinedChannel(channelToJoin.Channel));
                 StartJoinedChannelTimer(channelToJoin.Channel);
             }
@@ -1554,7 +1544,7 @@ namespace TwitchLib.Client
         public void SendQueuedItem(string message)
         {
             if (!IsInitialized) HandleNotInitialized();
-            _client.Send(message);
+            _client.SendAsync(message);
         }
 
         /// <summary>
